@@ -42,14 +42,23 @@ export interface VamanaStats {
   parameters: VamanaConfig;
 }
 
-// ================ 优化工具 ================
+// ================ 状态管理 ================
 
-// ================ 主要实现 ================
+interface VamanaState {
+  nodes: VamanaNode[];
+  medoidId: number;
+  nextNodeId: number;
+  distanceCache: DistanceCache;
+  distanceConfig: DistanceConfig;
+  config: Required<VamanaConfig>;
+}
+
+// ================ 配置验证 ================
 
 /**
- * 创建超优化Vamana图索引
+ * 验证Vamana配置参数
  */
-export function createVamanaIndex(config: VamanaConfig = {}): VamanaIndex {
+function validateVamanaConfig(config: VamanaConfig): Required<VamanaConfig> {
   const {
     distanceFunction = 'euclidean',
     customDistanceFunction,
@@ -60,7 +69,6 @@ export function createVamanaIndex(config: VamanaConfig = {}): VamanaIndex {
     maxIterations = 2
   } = config;
 
-  // 验证配置参数
   if (distanceFunction !== 'euclidean' && 
       distanceFunction !== 'cosine' && 
       distanceFunction !== 'inner_product' && 
@@ -76,209 +84,286 @@ export function createVamanaIndex(config: VamanaConfig = {}): VamanaIndex {
     throw new Error('配置参数必须为正数');
   }
 
-  const nodes: VamanaNode[] = [];
-  let medoidId: number = 0;
-  let nextNodeId = 0;
-  
-  // 距离缓存 - 关键优化
-  const distanceCache = new DistanceCache();
-  
-  // 距离配置
-  const distanceConfig: DistanceConfig = {
+  return {
     distanceFunction,
-    customDistanceFunction
+    customDistanceFunction: customDistanceFunction!,
+    R,
+    L,
+    alpha,
+    searchListSize,
+    maxIterations
   };
-  function insertNode(vector: Vector, data: NodeData = {}): number {
-    // 验证输入向量
-    if (!vector) {
-      throw new Error('向量不能为空');
+}
+
+// ================ 向量验证 ================
+
+/**
+ * 验证输入向量
+ */
+function validateVector(vector: Vector): Float32Array {
+  if (!vector) {
+    throw new Error('向量不能为空');
+  }
+
+  if (vector instanceof Float32Array && vector.length === 0) {
+    throw new Error('向量不能为空数组');
+  }
+
+  if (Array.isArray(vector) && vector.length === 0) {
+    throw new Error('向量不能为空数组');
+  }
+
+  const vectorArray = vector instanceof Float32Array ? vector : new Float32Array(vector);
+  
+  // 检查NaN和Infinity值
+  for (let i = 0; i < vectorArray.length; i++) {
+    if (!Number.isFinite(vectorArray[i])) {
+      throw new Error('向量包含无效值（NaN或Infinity）');
     }
+  }
 
-    if (vector instanceof Float32Array && vector.length === 0) {
-      throw new Error('向量不能为空数组');
-    }
+  return vectorArray;
+}
 
-    if (Array.isArray(vector) && vector.length === 0) {
-      throw new Error('向量不能为空数组');
-    }
+// ================ 核心操作函数 ================
 
-    // 检查NaN和Infinity值
-    const vectorArray = vector instanceof Float32Array ? vector : new Float32Array(vector);
-    for (let i = 0; i < vectorArray.length; i++) {
-      if (!Number.isFinite(vectorArray[i])) {
-        throw new Error('向量包含无效值（NaN或Infinity）');
-      }
-    }
+/**
+ * 插入新节点到Vamana图中
+ */
+function insertNodeToState(state: VamanaState, vector: Vector, data: NodeData = {}): number {
+  const vectorArray = validateVector(vector);
+  const nodeId = state.nextNodeId++;
+  
+  const newNode: VamanaNode = {
+    vector: vectorArray,
+    id: nodeId,
+    data,
+    neighbors: []
+  };
 
-    const nodeId = nextNodeId++;
-    
-    const newNode: VamanaNode = {
-      vector: vectorArray,
-      id: nodeId,
-      data,
-      neighbors: []
-    };
+  state.nodes.push(newNode);
 
-    nodes.push(newNode);
-
-    if (nodes.length === 1) {
-      medoidId = 0;
-      return nodeId;
-    }
-
-    // 使用贪婪搜索找到候选邻居
-    const searchResult = greedySearch(vectorArray, medoidId, L, nodes, distanceCache, distanceConfig);
-    const visitedNodes = Array.from(searchResult.visited);
-
-    // 使用标准RobustPrune选择最佳邻居
-    newNode.neighbors = robustPruneStandard(nodeId, visitedNodes, alpha, R, nodes, distanceCache, distanceConfig);
-
-    // 添加反向连接
-    for (const neighborId of newNode.neighbors) {
-      if (neighborId < nodes.length) {
-        const neighbor = nodes[neighborId];
-        if (!neighbor.neighbors.includes(nodeId)) {
-          neighbor.neighbors.push(nodeId);
-          
-          // 如果邻居的度超过限制，进行剪枝
-          if (neighbor.neighbors.length > R) {
-            neighbor.neighbors = robustPruneStandard(neighborId, neighbor.neighbors, alpha, R, nodes, distanceCache, distanceConfig);
-          }
-        }
-      }
-    }
-
+  if (state.nodes.length === 1) {
+    state.medoidId = 0;
     return nodeId;
   }
 
-  function buildIndex(): void {
-    if (nodes.length === 0) return;
-    
-    console.log(`🔧 构建优化Vamana图 (${nodes.length}个节点)`);
-    
-    // 清空距离缓存，重新开始
-    distanceCache.clear();
-    
-    // 重新计算medoid
-    medoidId = findMedoid(nodes, distanceCache, distanceConfig);
-    
-    // 为每个节点重新构建邻居连接
-    const nodeIds = Array.from({ length: nodes.length }, (_, i) => i);
-    
-    // 随机打乱插入顺序（Vamana算法的重要特性）
-    for (let i = nodeIds.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [nodeIds[i], nodeIds[j]] = [nodeIds[j], nodeIds[i]];
-    }
+  // 使用贪婪搜索找到候选邻居
+  const searchResult = greedySearch(
+    vectorArray, 
+    state.medoidId, 
+    state.config.L, 
+    state.nodes, 
+    state.distanceCache, 
+    state.distanceConfig
+  );
+  const visitedNodes = Array.from(searchResult.visited);
 
-    for (const nodeId of nodeIds) {
-      const searchResult = greedySearch(nodes[nodeId].vector, medoidId, L, nodes, distanceCache, distanceConfig);
-      const visitedNodes = Array.from(searchResult.visited);
-      
-      nodes[nodeId].neighbors = robustPruneStandard(nodeId, visitedNodes, alpha, R, nodes, distanceCache, distanceConfig);
+  // 使用标准RobustPrune选择最佳邻居
+  newNode.neighbors = robustPruneStandard(
+    nodeId, 
+    visitedNodes, 
+    state.config.alpha, 
+    state.config.R, 
+    state.nodes, 
+    state.distanceCache, 
+    state.distanceConfig
+  );
+
+  // 添加反向连接
+  for (const neighborId of newNode.neighbors) {
+    if (neighborId < state.nodes.length) {
+      const neighbor = state.nodes[neighborId];
+      if (!neighbor.neighbors.includes(nodeId)) {
+        neighbor.neighbors.push(nodeId);
+        
+        // 如果邻居的度超过限制，进行剪枝
+        if (neighbor.neighbors.length > state.config.R) {
+          neighbor.neighbors = robustPruneStandard(
+            neighborId, 
+            neighbor.neighbors, 
+            state.config.alpha, 
+            state.config.R, 
+            state.nodes, 
+            state.distanceCache, 
+            state.distanceConfig
+          );
+        }
+      }
     }
-    
-    console.log('✅ 优化Vamana图构建完成');
-    console.log('📊 距离缓存统计:', distanceCache.getStats());
   }
 
-  function searchKNN(queryVector: Vector, k = 10, searchParams: SearchParams = {}): SearchResult[] {
-    if (nodes.length === 0) return [];
+  return nodeId;
+}
 
-    const queryArray = queryVector instanceof Float32Array ? queryVector : new Float32Array(queryVector);
-    const beamSize = searchParams.searchListSize || searchListSize;
+/**
+ * 构建Vamana图索引
+ */
+function buildIndexForState(state: VamanaState): void {
+  if (state.nodes.length === 0) return;
+  
+  console.log(`🔧 构建优化Vamana图 (${state.nodes.length}个节点)`);
+  
+  // 清空距离缓存，重新开始
+  state.distanceCache.clear();
+  
+  // 重新计算medoid
+  state.medoidId = findMedoid(state.nodes, state.distanceCache, state.distanceConfig);
+  
+  // 为每个节点重新构建邻居连接
+  const nodeIds = Array.from({ length: state.nodes.length }, (_, i) => i);
+  
+  // 随机打乱插入顺序（Vamana算法的重要特性）
+  for (let i = nodeIds.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [nodeIds[i], nodeIds[j]] = [nodeIds[j], nodeIds[i]];
+  }
+
+  for (const nodeId of nodeIds) {
+    const searchResult = greedySearch(
+      state.nodes[nodeId].vector, 
+      state.medoidId, 
+      state.config.L, 
+      state.nodes, 
+      state.distanceCache, 
+      state.distanceConfig
+    );
+    const visitedNodes = Array.from(searchResult.visited);
     
-    // 检查是否所有节点都有邻居连接（即是否已构建索引）
-    const hasBuiltIndex = nodes.every(node => node.neighbors.length > 0 || nodes.length === 1);
-    
-    if (!hasBuiltIndex) {
-      // 如果没有构建索引，使用暴力搜索
-      const candidates: SearchCandidate[] = [];
-      for (let i = 0; i < nodes.length; i++) {
-        const distance = computeDistance(queryArray, nodes[i].vector, distanceConfig);
-        candidates.push({ id: i, distance });
-      }
-      candidates.sort((a, b) => a.distance - b.distance);
-      
-      return candidates
-        .slice(0, k)
-        .map(candidate => ({
-          id: candidate.id,
-          distance: candidate.distance,
-          data: nodes[candidate.id]?.data
-        }));
+    state.nodes[nodeId].neighbors = robustPruneStandard(
+      nodeId, 
+      visitedNodes, 
+      state.config.alpha, 
+      state.config.R, 
+      state.nodes, 
+      state.distanceCache, 
+      state.distanceConfig
+    );
+  }
+  
+  console.log('✅ 优化Vamana图构建完成');
+  console.log('📊 距离缓存统计:', state.distanceCache.getStats());
+}
+
+/**
+ * 在Vamana图中搜索K近邻
+ */
+function searchKNNInState(
+  state: VamanaState, 
+  queryVector: Vector, 
+  k = 10, 
+  searchParams: SearchParams = {}
+): SearchResult[] {
+  if (state.nodes.length === 0) return [];
+
+  const queryArray = queryVector instanceof Float32Array ? queryVector : new Float32Array(queryVector);
+  const beamSize = searchParams.searchListSize || state.config.searchListSize;
+  
+  // 检查是否所有节点都有邻居连接（即是否已构建索引）
+  const hasBuiltIndex = state.nodes.every(node => node.neighbors.length > 0 || state.nodes.length === 1);
+  
+  if (!hasBuiltIndex) {
+    // 如果没有构建索引，使用暴力搜索
+    const candidates: SearchCandidate[] = [];
+    for (let i = 0; i < state.nodes.length; i++) {
+      const distance = computeDistance(queryArray, state.nodes[i].vector, state.distanceConfig);
+      candidates.push({ id: i, distance });
     }
+    candidates.sort((a, b) => a.distance - b.distance);
     
-    // 使用贪婪搜索从medoid开始
-    const searchResult = greedySearch(queryArray, medoidId, beamSize, nodes, distanceCache, distanceConfig);
-    
-    // 返回最近的k个结果
-    return searchResult.candidates
+    return candidates
       .slice(0, k)
       .map(candidate => ({
         id: candidate.id,
         distance: candidate.distance,
-        data: nodes[candidate.id]?.data
+        data: state.nodes[candidate.id]?.data
       }));
   }
+  
+  // 使用贪婪搜索从medoid开始
+  const searchResult = greedySearch(
+    queryArray, 
+    state.medoidId, 
+    beamSize, 
+    state.nodes, 
+    state.distanceCache, 
+    state.distanceConfig
+  );
+  
+  // 返回最近的k个结果
+  return searchResult.candidates
+    .slice(0, k)
+    .map(candidate => ({
+      id: candidate.id,
+      distance: candidate.distance,
+      data: state.nodes[candidate.id]?.data
+    }));
+}
 
-  function optimize(): void {
-    console.log('开始优化Vamana图优化...');
-    buildIndex();
-    console.log('优化Vamana图优化完成');
-  }
-
-  function getStats(): VamanaStats {
-    if (nodes.length === 0) {
-      return {
-        nodeCount: 0,
-        avgOutDegree: 0,
-        maxOutDegree: 0,
-        graphDensity: 0,
-        parameters: {
-          distanceFunction,
-          customDistanceFunction,
-          R,
-          L,
-          alpha,
-          searchListSize,
-          maxIterations
-        }
-      };
-    }
-    
-    const totalDegree = nodes.reduce((sum, node) => sum + node.neighbors.length, 0);
-    const avgOutDegree = totalDegree / nodes.length;
-    const maxOutDegree = Math.max(...nodes.map(node => node.neighbors.length));
-    
-    const stats = {
-      nodeCount: nodes.length,
-      avgOutDegree,
-      maxOutDegree,
-      graphDensity: nodes.length > 1 ? totalDegree / (nodes.length * (nodes.length - 1)) : 0,
-      parameters: {
-        distanceFunction,
-        customDistanceFunction,
-        R,
-        L,
-        alpha,
-        searchListSize,
-        maxIterations
-      }
+/**
+ * 获取Vamana图统计信息
+ */
+function getStatsFromState(state: VamanaState): VamanaStats {
+  if (state.nodes.length === 0) {
+    return {
+      nodeCount: 0,
+      avgOutDegree: 0,
+      maxOutDegree: 0,
+      graphDensity: 0,
+      parameters: state.config
     };
-
-    // 添加缓存统计信息
-    console.log('🔍 距离缓存性能:', distanceCache.getStats());
-    
-    return stats;
   }
+  
+  const totalDegree = state.nodes.reduce((sum, node) => sum + node.neighbors.length, 0);
+  const avgOutDegree = totalDegree / state.nodes.length;
+  const maxOutDegree = Math.max(...state.nodes.map(node => node.neighbors.length));
+  
+  const stats = {
+    nodeCount: state.nodes.length,
+    avgOutDegree,
+    maxOutDegree,
+    graphDensity: state.nodes.length > 1 ? totalDegree / (state.nodes.length * (state.nodes.length - 1)) : 0,
+    parameters: state.config
+  };
+
+  // 添加缓存统计信息
+  console.log('🔍 距离缓存性能:', state.distanceCache.getStats());
+  
+  return stats;
+}
+
+// ================ 主要实现 ================
+
+/**
+ * 创建超优化Vamana图索引
+ */
+export function createVamanaIndex(config: VamanaConfig = {}): VamanaIndex {
+  const validatedConfig = validateVamanaConfig(config);
+  
+  // 初始化状态
+  const state: VamanaState = {
+    nodes: [],
+    medoidId: 0,
+    nextNodeId: 0,
+    distanceCache: new DistanceCache(),
+    distanceConfig: {
+      distanceFunction: validatedConfig.distanceFunction,
+      customDistanceFunction: validatedConfig.customDistanceFunction
+    },
+    config: validatedConfig
+  };
 
   return {
-    insertNode,
-    buildIndex,
-    searchKNN,
-    getStats,
-    optimize
+    insertNode: (vector: Vector, data: NodeData = {}) => insertNodeToState(state, vector, data),
+    buildIndex: () => buildIndexForState(state),
+    searchKNN: (queryVector: Vector, k = 10, searchParams: SearchParams = {}) => 
+      searchKNNInState(state, queryVector, k, searchParams),
+    getStats: () => getStatsFromState(state),
+    optimize: () => {
+      console.log('开始优化Vamana图优化...');
+      buildIndexForState(state);
+      console.log('优化Vamana图优化完成');
+    }
   };
 }
 

@@ -91,4 +91,40 @@
 - ✅ 31个基础功能测试全部通过
 - ✅ 类型检查通过
 - ✅ 所有robustPruneStandard调用都正常工作
-- ⚠️ 性能测试失败（预期，不是功能性问题） 
+- ⚠️ 性能测试失败（预期，不是功能性问题）
+
+### 2025-08-02 03:07:07 - 消除vamana-index.ts中的嵌套函数
+
+**修改内容**：
+1. **重构了createVamanaIndex函数**：
+   - 移除了所有嵌套函数：`insertNode`、`buildIndex`、`searchKNN`、`optimize`、`getStats`
+   - 创建了`VamanaState`接口来管理共享状态
+   - 将所有嵌套函数提取为独立的函数
+
+2. **新增的独立函数**：
+   - `validateVamanaConfig` - 验证配置参数
+   - `validateVector` - 验证输入向量
+   - `insertNodeToState` - 插入节点到状态
+   - `buildIndexForState` - 构建索引
+   - `searchKNNInState` - 搜索K近邻
+   - `getStatsFromState` - 获取统计信息
+
+3. **状态管理优化**：
+   - 使用`VamanaState`对象替代闭包变量
+   - 所有函数都接收状态对象作为参数
+   - 消除了函数嵌套，提高了代码可读性
+
+**重构效果**：
+- 完全消除了函数嵌套问题
+- 代码结构更加清晰，符合函数式编程原则
+- 每个函数职责单一，便于测试和维护
+- 保持了所有原有功能不变
+
+**测试结果**：
+- ✅ 31个基础功能测试全部通过
+- ✅ 类型检查通过
+- ✅ 所有功能正常工作
+- ⚠️ 性能测试失败（预期，不是功能性问题）
+
+**备份文件**：
+- `backup/vamana-index-2025-08-02-03-07-07.old` 

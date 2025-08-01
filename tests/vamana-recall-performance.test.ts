@@ -125,8 +125,7 @@ describe('Vamana召回率和性能测试', () => {
         R: 16,
         L: 32,
         alpha: 1.2,
-        searchListSize: 50,
-        useRobustPrune: true
+        searchListSize: 50
       }
       
       index = createVamanaIndex(config)
@@ -168,8 +167,7 @@ describe('Vamana召回率和性能测试', () => {
         R: 16,
         L: 32,
         alpha: 1.2,
-        searchListSize: 50,
-        useRobustPrune: true
+        searchListSize: 50
       }
       
       index = createVamanaIndex(config)
@@ -202,8 +200,7 @@ describe('Vamana召回率和性能测试', () => {
           R: 16,
           L: 32,
           alpha: 1.2,
-          searchListSize: 50,
-          useRobustPrune: true
+          searchListSize: 50
         }
         
         index = createVamanaIndex(config)
@@ -236,8 +233,7 @@ describe('Vamana召回率和性能测试', () => {
         R: 16,
         L: 32,
         alpha: 1.2,
-        searchListSize: 50,
-        useRobustPrune: true
+        searchListSize: 50
       }
       
       index = createVamanaIndex(config)
@@ -295,8 +291,7 @@ describe('Vamana召回率和性能测试', () => {
           R: 16,
           L: 32,
           alpha: 1.2,
-          searchListSize: 50,
-          useRobustPrune: true
+          searchListSize: 50
         }
         
         index = createVamanaIndex(config)
@@ -324,8 +319,7 @@ describe('Vamana召回率和性能测试', () => {
         R: 16,
         L: 32,
         alpha: 1.2,
-        searchListSize: 50,
-        useRobustPrune: true
+        searchListSize: 50
       }
       
       index = createVamanaIndex(config)
@@ -337,7 +331,7 @@ describe('Vamana召回率和性能测试', () => {
       
       // 批量暴力搜索
       const bruteForceStartTime = performance.now()
-      const bruteForceResults = []
+      const bruteForceResults: Array<Array<{ id: number; distance: number }>> = []
       for (let i = 0; i < batchSize; i++) {
         const results = bruteForceSearch(testQueries[i], vectors, k, 'euclidean')
         bruteForceResults.push(results)
@@ -346,7 +340,7 @@ describe('Vamana召回率和性能测试', () => {
       
       // 批量Vamana搜索
       const vamanaStartTime = performance.now()
-      const vamanaResults = []
+      const vamanaResults: Array<Array<{ id: number; distance: number }>> = []
       for (let i = 0; i < batchSize; i++) {
         const results = index.searchKNN(testQueries[i], k)
         vamanaResults.push(results)
@@ -379,15 +373,14 @@ describe('Vamana召回率和性能测试', () => {
         R: 16,
         L: 32,
         alpha: 1.2,
-        searchListSize: 50,
-        useRobustPrune: true
+        searchListSize: 50
       }
       
       const query = testQueries[0]
       const k = 10
       const testVectors = vectors.slice(0, 100) // 减少测试数据
       
-      const results = []
+      const results: number[] = []
       
       // 多次运行测试
       for (let run = 0; run < 3; run++) { // 减少运行次数
@@ -423,8 +416,7 @@ describe('Vamana召回率和性能测试', () => {
         R: 16,
         L: 32,
         alpha: 1.2,
-        searchListSize: 50,
-        useRobustPrune: true
+        searchListSize: 50
       }
       
       index = createVamanaIndex(config)
