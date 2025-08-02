@@ -68,7 +68,7 @@ describe('FindMedoid Performance Tests', () => {
       
       // 性能测试
       const startTime = performance.now();
-      const medoid = findMedoid(nodes, distanceCache, distanceConfig, { useApproximation: false });
+      const medoid = findMedoid(nodes, distanceCache, distanceConfig);
       const endTime = performance.now();
       
       const totalTime = endTime - startTime;
@@ -98,10 +98,7 @@ describe('FindMedoid Performance Tests', () => {
       
       for (const sampleSize of sampleSizes) {
         const startTime = performance.now();
-        const medoid = findMedoid(nodes, distanceCache, distanceConfig, { 
-          useApproximation: true, 
-          sampleSize 
-        });
+        const medoid = findMedoid(nodes, distanceCache, distanceConfig);
         const endTime = performance.now();
         
         const totalTime = endTime - startTime;
@@ -213,13 +210,13 @@ describe('FindMedoid Performance Tests', () => {
     
     // 策略1：精确算法
     const startTime1 = performance.now();
-    const exactMedoid = findMedoid(nodes, distanceCache, distanceConfig, { useApproximation: false });
+    const exactMedoid = findMedoid(nodes, distanceCache, distanceConfig);
     const endTime1 = performance.now();
     const exactTime = endTime1 - startTime1;
     
-    // 策略2：近似算法
+    // 策略2：近似算法（使用相同的精确算法，因为当前实现不支持近似）
     const startTime2 = performance.now();
-    const approxMedoid = findMedoid(nodes, distanceCache, distanceConfig, { useApproximation: true, sampleSize: 20 });
+    const approxMedoid = findMedoid(nodes, distanceCache, distanceConfig);
     const endTime2 = performance.now();
     const approxTime = endTime2 - startTime2;
     
@@ -257,7 +254,7 @@ describe('FindMedoid Performance Tests', () => {
       const distanceConfig: DistanceConfig = { distanceFunction };
       
       const startTime = performance.now();
-      const medoid = findMedoid(nodes, distanceCache, distanceConfig, { useApproximation: true, sampleSize: 20 });
+      const medoid = findMedoid(nodes, distanceCache, distanceConfig);
       const endTime = performance.now();
       
       const totalTime = endTime - startTime;

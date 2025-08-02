@@ -176,88 +176,115 @@ function buildIndexForState(state: VamanaState): void {
   
   console.log(`🔧 构建优化Vamana图 (${state.nodes.length}个节点)`);
   
-  // 重新计算medoid
-  state.medoidId = findMedoid(state.nodes, state.distanceCache, state.distanceConfig);
-  
-  // 为每个节点构建邻居连接
+  // 步骤1: 初始化一个随机邻接图
+  console.log(`📊 步骤1: 初始化随机邻接图`);
   const nodeIds = Array.from({ length: state.nodes.length }, (_, i) => i);
   
-  // 随机打乱插入顺序（Vamana算法的重要特性）
-  for (let i = nodeIds.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [nodeIds[i], nodeIds[j]] = [nodeIds[j], nodeIds[i]];
-  }
-
-  // 创建初始搜索起始点集合
-  const initIds = [state.medoidId];
-  // 添加随机起始点，提高图的连通性（与C++版本保持一致）
-  const numRandomStarts = Math.min(128, Math.floor(state.nodes.length / 100));
-  for (let i = 0; i < numRandomStarts; i++) {
-    const randomStart = Math.floor(Math.random() * state.nodes.length);
-    if (!initIds.includes(randomStart)) {
-      initIds.push(randomStart);
+  // 为每个节点随机分配初始邻居
+  for (let i = 0; i < state.nodes.length; i++) {
+    const currentNode = state.nodes[i];
+    const randomNeighbors: number[] = [];
+    
+    // 为每个节点随机选择一些初始邻居
+    const numRandomNeighbors = Math.min(state.config.R, Math.floor(state.nodes.length / 10));
+    const candidates = nodeIds.filter(id => id !== i);
+    
+    for (let j = 0; j < numRandomNeighbors && candidates.length > 0; j++) {
+      const randomIndex = Math.floor(Math.random() * candidates.length);
+      const neighborId = candidates.splice(randomIndex, 1)[0];
+      randomNeighbors.push(neighborId);
     }
+    
+    currentNode.neighbors = randomNeighbors;
   }
-
-  // 两轮构建过程，参考C++版本的link函数
-  const Lvec = [Math.floor(0.8 * state.config.L), state.config.L];
+  
+  // 步骤2: 计算入口点（medoid）
+  console.log(`🎯 步骤2: 计算入口点（medoid）`);
+  state.medoidId = findMedoid(state.nodes, state.distanceCache, state.distanceConfig);
+  console.log(`📍 入口点: ${state.medoidId}`);
+  
+  // 步骤3&4: 从入口点出发遍历，使用路径上的所有点作为候选邻居，然后裁边，调整alpha重复迭代
+  const Lvec = [state.config.L, state.config.L * 1.2];
   const NUM_RNDS = 2;
-
+  
   for (let rnd_no = 0; rnd_no < NUM_RNDS; rnd_no++) {
     const L = Lvec[rnd_no];
-    
-    // 第一轮使用alpha=1.0，第二轮使用指定的alpha
     const currentAlpha = rnd_no === NUM_RNDS - 1 ? state.config.alpha : 1.0;
     
-    console.log(`🔄 第${rnd_no + 1}轮构建: L=${L}, alpha=${currentAlpha}`);
-
-    // 第一阶段：为每个节点找到候选邻居（批量处理）
+    console.log(`🔄 第${rnd_no + 1}轮迭代: L=${L}, alpha=${currentAlpha}`);
+    
+    // 为每个节点，从入口点进行KNN搜索，收集搜索路径上的所有节点作为候选邻居
     const batchSize = Math.min(100, Math.max(10, Math.floor(state.nodes.length / 10)));
     
     for (let batchStart = 0; batchStart < state.nodes.length; batchStart += batchSize) {
       const batchEnd = Math.min(batchStart + batchSize, state.nodes.length);
       
-      // 处理当前批次
       for (let i = batchStart; i < batchEnd; i++) {
         const nodeId = nodeIds[i];
         
-        // 从多个起始点开始搜索（使用专门的建图搜索函数）
-        const allVisitedNodes = new Set<number>();
+        // 从入口点开始，使用类似KNN搜索的方式找到目标节点，收集搜索过程中访问的所有节点
+        const pathNodes = new Set<number>();
         
-        for (const startPoint of initIds) {
-          const searchResult = greedySearchForBuilding(
-            nodeId,
-            startPoint, 
-            L, 
-            state.nodes, 
-            state.distanceCache, 
-            state.distanceConfig
-          );
-          // 仅使用搜索结果中的候选节点作为allVisitedNodes
-          // 因为searchResult.candidates的大小已经被L限制
-          for (const candidate of searchResult.candidates) {
-            allVisitedNodes.add(candidate.id);
-          }
+        // 使用贪心搜索从入口点找到目标节点，收集搜索过程中访问的所有节点
+        const searchResult = greedySearchForBuilding(
+          nodeId,  // 目标节点
+          state.medoidId,  // 从入口点开始
+          L,  // 搜索宽度
+          state.nodes,
+          state.distanceCache,
+          state.distanceConfig
+        );
+        
+        // 将搜索过程中访问的所有节点作为候选邻居
+        for (const candidate of searchResult.candidates) {
+          pathNodes.add(candidate.id);
         }
         
-        const visitedNodes = Array.from(allVisitedNodes);
+        // 将搜索过程中visited的节点也加入候选集
+      /*  for (let j = 0; j < searchResult.visited.length; j++) {
+          if (searchResult.visited[j] > 0) {
+            pathNodes.add(j);
+          }
+        }*/
+        
+        // 确保目标节点本身不在候选集中
+        pathNodes.delete(nodeId);
+        
+        // 如果候选邻居太少，添加一些随机邻居
+        /*if (pathNodes.size < state.config.R) {
+          const remainingNodes = nodeIds.filter(id => 
+            id !== nodeId && !pathNodes.has(id)
+          );
+          const numAdditional = Math.min(
+            state.config.R - pathNodes.size,
+            remainingNodes.length
+          );
+          
+          for (let j = 0; j < numAdditional; j++) {
+            const randomIndex = Math.floor(Math.random() * remainingNodes.length);
+            const randomNode = remainingNodes.splice(randomIndex, 1)[0];
+            pathNodes.add(randomNode);
+          }
+        }*/
+        
+        const candidateNeighbors = Array.from(pathNodes);
         
         // 使用RobustPrune选择最佳邻居
-        const maxc = Math.max(state.config.R * 2, 100); // 与C++版本一致的默认值
+        const maxc = Math.max(state.config.R * 2, 100);
         state.nodes[nodeId].neighbors = robustPruneStandard(
-          nodeId, 
-          visitedNodes, 
-          currentAlpha, 
-          state.config.R, 
+          nodeId,
+          candidateNeighbors,
+          currentAlpha,
+          state.config.R,
           maxc,
-          state.nodes, 
-          state.distanceCache, 
+          state.nodes,
+          state.distanceCache,
           state.distanceConfig
         );
       }
     }
-
-    // 第二阶段：添加反向连接并确保图的连通性（批量处理）
+    
+    // 添加反向连接并确保图的连通性
     for (let batchStart = 0; batchStart < state.nodes.length; batchStart += batchSize) {
       const batchEnd = Math.min(batchStart + batchSize, state.nodes.length);
       
@@ -279,35 +306,31 @@ function buildIndexForState(state: VamanaState): void {
               
               // 如果邻居的度超过GRAPH_SLACK_FACTOR * R的限制，进行剪枝
               if (neighbor.neighbors.length > Math.floor(GRAPH_SLACK_FACTOR * state.config.R)) {
-                const maxc = Math.max(state.config.R * 2, 100); // 与C++版本一致的默认值
+                const maxc = Math.max(state.config.R * 2, 100);
                 neighbor.neighbors = robustPruneStandard(
-                  neighborId, 
-                  neighbor.neighbors, 
-                  currentAlpha, 
-                  state.config.R, 
+                  neighborId,
+                  neighbor.neighbors,
+                  currentAlpha,
+                  state.config.R,
                   maxc,
-                  state.nodes, 
-                  state.distanceCache, 
+                  state.nodes,
+                  state.distanceCache,
                   state.distanceConfig
                 );
               }
             }
             
             // 维护反向图结构：将当前节点添加到邻居的反向图中
-            if (!state.inGraph[neighborId].includes(nodeId)) {
-              state.inGraph[neighborId].push(nodeId);
-            }
+            state.inGraph[neighborId].push(nodeId);
           }
         }
       }
     }
   }
   
-  // 设置构建完成标志
+  // 标记图已构建完成
   state.hasBuilt = true;
-  
-  console.log('✅ 优化Vamana图构建完成');
-  console.log('📊 距离缓存统计:', state.distanceCache.getStats());
+  console.log(`✅ Vamana图构建完成`);
 }
 
 /**

@@ -203,7 +203,7 @@ describe('Vamana 综合性能测试', () => {
       distanceFunction: 'euclidean' as const,
       R: 32,
       L: 64,
-      alpha: 1.1,
+      alpha: 1.2,
     }
   };
 
@@ -545,7 +545,7 @@ describe('Vamana 综合性能测试', () => {
         distanceFunction: 'euclidean',
         R: 64,
         L: 100,
-        alpha: 1.1
+        alpha: 1.2
       };
       
       recallTestIndex = createVamanaIndex(config);
@@ -602,7 +602,7 @@ describe('Vamana 综合性能测试', () => {
           distanceFunction: 'euclidean',
           R: 32,
           L: 64,
-          alpha: 1.1
+          alpha: 1.2
         };
         
         recallTestIndex = createVamanaIndex(config);
@@ -629,7 +629,7 @@ describe('Vamana 综合性能测试', () => {
         distanceFunction: 'euclidean',
         R: 32,
         L: 64,
-        alpha: 1.1
+        alpha: 1.2
       };
       
       recallTestIndex = createVamanaIndex(config);

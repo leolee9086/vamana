@@ -176,14 +176,15 @@ export function greedySearchForBuildingMultiStart(
   beamSize: number,
   nodes: VamanaNode[],
   distanceCache: DistanceCache,
-  distanceConfig: DistanceConfig
+  distanceConfig: DistanceConfig,
+  globalVisited?: Uint8Array // 新增：全局共享的visited数组
 ): SearchResult {
   if (nodes.length === 0 || startNodeIds.length === 0) {
     return { candidates: [], visited: new Uint8Array(0), visitedNodeCount: 0 };
   }
 
-  // 使用Uint8Array表示节点状态，复用visited数组
-  const visited = new Uint8Array(nodes.length);
+  // 使用全局visited数组或创建新的visited数组
+  const visited = globalVisited || new Uint8Array(nodes.length);
   let visitedNodeCount = 0; // 新增：实际访问的节点数量
   
   // 使用有序数组管理候选集，限制大小为beamSize
@@ -371,9 +372,10 @@ export function greedySearchForBuilding(
   beamSize: number,
   nodes: VamanaNode[],
   distanceCache: DistanceCache,
-  distanceConfig: DistanceConfig
+  distanceConfig: DistanceConfig,
+  globalVisited?: Uint8Array // 新增：全局共享的visited数组
 ): SearchResult {
-  return greedySearchForBuildingMultiStart(nodeId, [startNodeId], beamSize, nodes, distanceCache, distanceConfig);
+  return greedySearchForBuildingMultiStart(nodeId, [startNodeId], beamSize, nodes, distanceCache, distanceConfig, globalVisited);
 }
 
 /**
@@ -581,7 +583,7 @@ export function updateMedoidIncremental(
   // 检查当前中位点是否仍然有效
   if (removedNodes && removedNodes.includes(currentMedoid)) {
     // 当前中位点被删除，需要重新计算
-    return findMedoid(nodes, distanceCache, distanceConfig, { useApproximation: true });
+    return findMedoid(nodes, distanceCache, distanceConfig);
   }
 
   // 计算新添加节点到所有其他节点的距离
