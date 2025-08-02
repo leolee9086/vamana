@@ -26,6 +26,7 @@ export interface SearchCandidate {
 export interface SearchResult {
   candidates: SearchCandidate[];
   visited: Uint8Array; // 使用Uint8Array替代Set<number>以提高性能
+  visitedNodeCount: number; // 新增：实际访问的节点数量
 }
 
 // 节点状态枚举
@@ -62,7 +63,7 @@ export function greedySearchMultiStart(
   distanceConfig: DistanceConfig
 ): SearchResult {
   if (nodes.length === 0 || startNodeIds.length === 0) {
-    return { candidates: [], visited: new Uint8Array(0) };
+    return { candidates: [], visited: new Uint8Array(0), visitedNodeCount: 0 };
   }
 
   // 预计算查询向量的平方范数，避免重复计算
@@ -70,6 +71,7 @@ export function greedySearchMultiStart(
 
   // 使用Uint8Array表示节点状态，复用visited数组
   const visited = new Uint8Array(nodes.length);
+  let visitedNodeCount = 0; // 新增：实际访问的节点数量
   
   // 使用有序数组管理候选集，限制大小为beamSize
   const candidates: SearchCandidate[] = [];
@@ -93,7 +95,10 @@ export function greedySearchMultiStart(
     candidateCount = Math.min(candidateCount + 1, beamSize);
     
     // 标记为在候选集中
-    visited[startNodeId] = NodeState.IN_CANDIDATES;
+    if (visited[startNodeId] === NodeState.UNVISITED) { // 只有未访问过的节点才增加计数
+      visited[startNodeId] = NodeState.IN_CANDIDATES;
+      visitedNodeCount++;
+    }
   }
 
   let currentIndex = 0;
@@ -107,7 +112,10 @@ export function greedySearchMultiStart(
       const currentId = currentCandidate.id;
       
       // 标记为已访问
-      visited[currentId] = NodeState.VISITED;
+      if (visited[currentId] !== NodeState.VISITED) { // 只有未标记为已访问的节点才增加计数
+        visited[currentId] = NodeState.VISITED;
+        // visitedNodeCount++; // 已经在IN_CANDIDATES时计数，这里不再重复计数
+      }
 
       // 探索当前节点的邻居
       const currentNode = nodes[currentId];
@@ -130,7 +138,10 @@ export function greedySearchMultiStart(
           if (inserted) {
             candidateCount = Math.min(candidateCount + 1, beamSize);
             // 标记为在候选集中
-            visited[neighborId] = NodeState.IN_CANDIDATES;
+            if (visited[neighborId] === NodeState.UNVISITED) { // 只有未访问过的节点才增加计数
+              visited[neighborId] = NodeState.IN_CANDIDATES;
+              visitedNodeCount++;
+            }
           }
         }
       }
@@ -144,7 +155,8 @@ export function greedySearchMultiStart(
 
   return { 
     candidates: validCandidates, 
-    visited 
+    visited,
+    visitedNodeCount // 返回实际访问的节点数量
   };
 }
 //@织:函数过长需要拆分
@@ -167,11 +179,12 @@ export function greedySearchForBuildingMultiStart(
   distanceConfig: DistanceConfig
 ): SearchResult {
   if (nodes.length === 0 || startNodeIds.length === 0) {
-    return { candidates: [], visited: new Uint8Array(0) };
+    return { candidates: [], visited: new Uint8Array(0), visitedNodeCount: 0 };
   }
 
   // 使用Uint8Array表示节点状态，复用visited数组
   const visited = new Uint8Array(nodes.length);
+  let visitedNodeCount = 0; // 新增：实际访问的节点数量
   
   // 使用有序数组管理候选集，限制大小为beamSize
   const candidates: SearchCandidate[] = [];
@@ -195,7 +208,10 @@ export function greedySearchForBuildingMultiStart(
     candidateCount = Math.min(candidateCount + 1, beamSize);
     
     // 标记为在候选集中
-    visited[startNodeId] = NodeState.IN_CANDIDATES;
+    if (visited[startNodeId] === NodeState.UNVISITED) { // 只有未访问过的节点才增加计数
+      visited[startNodeId] = NodeState.IN_CANDIDATES;
+      visitedNodeCount++;
+    }
   }
 
   let currentIndex = 0;
@@ -209,7 +225,10 @@ export function greedySearchForBuildingMultiStart(
       const currentId = currentCandidate.id;
       
       // 标记为已访问
-      visited[currentId] = NodeState.VISITED;
+      if (visited[currentId] !== NodeState.VISITED) { // 只有未标记为已访问的节点才增加计数
+        visited[currentId] = NodeState.VISITED;
+        // visitedNodeCount++; // 已经在IN_CANDIDATES时计数，这里不再重复计数
+      }
 
       // 探索当前节点的邻居
       const currentNode = nodes[currentId];
@@ -232,7 +251,10 @@ export function greedySearchForBuildingMultiStart(
           if (inserted) {
             candidateCount = Math.min(candidateCount + 1, beamSize);
             // 标记为在候选集中
-            visited[neighborId] = NodeState.IN_CANDIDATES;
+            if (visited[neighborId] === NodeState.UNVISITED) { // 只有未访问过的节点才增加计数
+              visited[neighborId] = NodeState.IN_CANDIDATES;
+              visitedNodeCount++;
+            }
           }
         }
       }
@@ -246,7 +268,8 @@ export function greedySearchForBuildingMultiStart(
 
   return { 
     candidates: validCandidates, 
-    visited 
+    visited,
+    visitedNodeCount // 返回实际访问的节点数量
   };
 }
 
