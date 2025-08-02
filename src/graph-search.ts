@@ -52,16 +52,7 @@ export function calculateSqNorm(vec: Float32Array): number {
 
 // ================ 图搜索算法 ================
 
-/**
- * 贪婪图搜索算法 - 用于查询阶段的多起始点搜索（不使用缓存）
- * 
- * 优化策略：
- * 1. 使用最小堆管理候选集，O(log n)插入/删除
- * 2. 复用visited数组，避免额外的Set结构
- * 3. 对象池减少内存分配
- * 4. 预计算查询向量范数
- * 5. 改进候选集管理策略
- */
+
 export function greedySearchMultiStart(
   queryVector: Float32Array,
   startNodeIds: number[], // 支持多个起始点
@@ -156,7 +147,7 @@ export function greedySearchMultiStart(
     visited 
   };
 }
-
+//@织:函数过长需要拆分
 /**
  * 贪婪图搜索算法 - 用于建图阶段的多起始点搜索（使用缓存）
  * 

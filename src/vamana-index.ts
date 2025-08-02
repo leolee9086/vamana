@@ -165,6 +165,8 @@ function insertNodeToState(state: VamanaState, vector: Vector, data: NodeData = 
   return nodeId;
 }
 
+
+//@织:这个函数过长需要拆分
 /**
  * 构建Vamana图索引
  * 基于C++实现修复：每个节点从多个起始点开始搜索，提高图的连通性

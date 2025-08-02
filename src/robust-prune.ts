@@ -11,7 +11,7 @@ export interface SearchCandidate {
   id: number;
   distance: number;
 }
-
+//@织:这个函数过长需要拆分
 /**
  * 正确的RobustPrune算法实现
  * 参考C++版本的occlude_list函数
