@@ -10,8 +10,7 @@ describe('VamanaIndex', () => {
       distanceFunction: 'euclidean',
       R: 16,
       L: 32,
-      alpha: 1.2,
-      searchListSize: 50
+      alpha: 1.2
     }
     index = createVamanaIndex(config)
   })
@@ -287,6 +286,10 @@ describe('VamanaIndex', () => {
         index2.insertNode(vector)
       })
       
+      // 构建图结构
+      index1.buildIndex()
+      index2.buildIndex()
+      
       const stats1 = index1.getStats()
       const stats2 = index2.getStats()
       
@@ -352,6 +355,9 @@ describe('VamanaIndex', () => {
       ]
       
       vectors.forEach(vector => index.insertNode(vector))
+      
+      // 构建图结构
+      index.buildIndex()
       
       const stats = index.getStats()
       
@@ -425,7 +431,7 @@ describe('VamanaIndex', () => {
 
   describe('性能测试', () => {
     it('应该能够处理大量节点', () => {
-      const nodeCount = 100
+      const nodeCount = 500 // 从100增加到500，提供更有意义的性能测试
       const vectors: Float32Array[] = []
       
       for (let i = 0; i < nodeCount; i++) {
@@ -457,9 +463,9 @@ describe('VamanaIndex', () => {
       const searchTime = performance.now() - searchStartTime
       
       expect(results).toHaveLength(10)
-      expect(insertTime).toBeLessThan(1000) // 插入应该在1秒内完成
-      expect(buildTime).toBeLessThan(1000) // 构建应该在1秒内完成
-      expect(searchTime).toBeLessThan(100) // 搜索应该在100ms内完成
+      expect(insertTime).toBeLessThan(5000) // 调整时间阈值以适应更大规模
+      expect(buildTime).toBeLessThan(5000) // 调整时间阈值以适应更大规模
+      expect(searchTime).toBeLessThan(500) // 调整时间阈值以适应更大规模
       
       const stats = index.getStats()
       expect(stats.nodeCount).toBe(nodeCount)
@@ -473,7 +479,7 @@ describe('VamanaIndex', () => {
       ]
       
       const vectors: Float32Array[] = []
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 1000; i++) { // 从50增加到200，提供更有意义的性能测试
         vectors.push(new Float32Array([Math.random(), Math.random()]))
       }
       
@@ -485,7 +491,7 @@ describe('VamanaIndex', () => {
         testIndex.buildIndex()
         const totalTime = performance.now() - startTime
         
-        expect(totalTime).toBeLessThan(1000) // 应该在1秒内完成
+        expect(totalTime).toBeLessThan(3000) // 调整时间阈值以适应更大规模
         
         const queryVector = new Float32Array([0.5, 0.5])
         const results = testIndex.searchKNN(queryVector, 5)
@@ -595,3 +601,101 @@ describe('VamanaIndex', () => {
     })
   })
 }) 
+
+describe('反向图结构和删除功能', () => {
+  it('应该正确维护反向图结构', () => {
+    const index = createVamanaIndex({ R: 4, L: 8, alpha: 1.2 });
+    
+    // 插入测试节点
+    const node1 = index.insertNode([1, 0, 0]);
+    const node2 = index.insertNode([0, 1, 0]);
+    const node3 = index.insertNode([0, 0, 1]);
+    
+    index.buildIndex();
+    
+    const state = index.getInternalState();
+    
+    // 验证反向图结构已初始化
+    expect(state.inGraph).toBeDefined();
+    expect(state.inGraph.length).toBe(3);
+    
+    // 验证每个节点都有反向图记录
+    for (let i = 0; i < 3; i++) {
+      expect(Array.isArray(state.inGraph[i])).toBe(true);
+    }
+  });
+
+  it('删除节点应该正确更新反向图', () => {
+    const index = createVamanaIndex({ R: 4, L: 8, alpha: 1.2 });
+    
+    // 插入测试节点
+    const node1 = index.insertNode([1, 0, 0]);
+    const node2 = index.insertNode([0, 1, 0]);
+    const node3 = index.insertNode([0, 0, 1]);
+    
+    index.buildIndex();
+    
+    // 记录删除前的状态
+    const stateBefore = index.getInternalState();
+    const neighborsBefore = stateBefore.nodes[1].neighbors.length;
+    
+    // 删除节点1
+    const deleteResult = index.deleteNode(1);
+    expect(deleteResult).toBe(true);
+    
+    // 验证节点1被标记为已删除
+    const stateAfter = index.getInternalState();
+    expect(stateAfter.nodes[1].data.deleted).toBe(true);
+    
+    // 验证其他节点的邻居列表已更新（不再包含节点1）
+    for (let i = 0; i < stateAfter.nodes.length; i++) {
+      if (i !== 1) {
+        const hasNode1AsNeighbor = stateAfter.nodes[i].neighbors.includes(1);
+        expect(hasNode1AsNeighbor).toBe(false);
+      }
+    }
+  });
+
+  it('搜索应该跳过已删除的节点', () => {
+    const index = createVamanaIndex({ R: 4, L: 8, alpha: 1.2 });
+    
+    // 插入测试节点
+    index.insertNode([1, 0, 0]);
+    index.insertNode([0, 1, 0]);
+    index.insertNode([0, 0, 1]);
+    
+    index.buildIndex();
+    
+    // 删除节点1
+    index.deleteNode(1);
+    
+    // 搜索查询
+    const results = index.searchKNN([1, 0, 0], 3);
+    
+    // 验证结果中不包含已删除的节点
+    const hasDeletedNode = results.some(result => result.id === 1);
+    expect(hasDeletedNode).toBe(false);
+  });
+
+  it('统计信息应该正确反映活跃节点', () => {
+    const index = createVamanaIndex({ R: 4, L: 8, alpha: 1.2 });
+    
+    // 插入测试节点
+    index.insertNode([1, 0, 0]);
+    index.insertNode([0, 1, 0]);
+    index.insertNode([0, 0, 1]);
+    
+    index.buildIndex();
+    
+    // 删除前应该有3个节点
+    let stats = index.getStats();
+    expect(stats.nodeCount).toBe(3);
+    
+    // 删除一个节点
+    index.deleteNode(1);
+    
+    // 删除后应该有2个活跃节点
+    stats = index.getStats();
+    expect(stats.nodeCount).toBe(2);
+  });
+}); 

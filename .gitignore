@@ -3,7 +3,8 @@
 
 # Build output
 /dist
-
+/knowhere
+/toread
 # Log files
 npm-debug.log*
 yarn-debug.log*

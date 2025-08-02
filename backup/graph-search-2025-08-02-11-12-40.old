@@ -5,7 +5,6 @@
 
 import { Vector } from './common.js';
 import { DistanceConfig, DistanceCache, computeDistance, computeDistanceFromIds } from './distance.js';
-import { BinaryHeapGeneric } from './binary-heap.js';
 
 // ================ 类型定义 ================
 
@@ -28,13 +27,6 @@ export interface SearchResult {
   visited: Uint8Array; // 使用Uint8Array替代Set<number>以提高性能
 }
 
-// 节点状态枚举
-enum NodeState {
-  UNVISITED = 0,    // 未访问
-  VISITED = 1,      // 已访问
-  IN_CANDIDATES = 2 // 在候选集中
-}
-
 // ================ 辅助函数 ================
 
 /**
@@ -53,14 +45,16 @@ export function calculateSqNorm(vec: Float32Array): number {
 // ================ 图搜索算法 ================
 
 /**
- * 贪婪图搜索算法 - 用于查询阶段的多起始点搜索（不使用缓存）
+ * 贪婪图搜索算法 - 支持多起始点搜索
  * 
- * 优化策略：
- * 1. 使用最小堆管理候选集，O(log n)插入/删除
- * 2. 复用visited数组，避免额外的Set结构
- * 3. 对象池减少内存分配
- * 4. 预计算查询向量范数
- * 5. 改进候选集管理策略
+ * 关键特性：
+ * 1. 支持多个起始点，提高图的连通性和搜索质量
+ * 2. 使用flag标记需要扩展的节点
+ * 3. 正确的终止条件：当没有更多节点需要扩展时停止
+ * 4. 高效的候选集管理，避免重复计算
+ * 5. 支持frozen point处理
+ * 6. 使用Uint8Array优化visited集合性能
+ * 7. 优化候选集管理，减少排序频率
  */
 export function greedySearchMultiStart(
   queryVector: Float32Array,
@@ -74,249 +68,116 @@ export function greedySearchMultiStart(
     return { candidates: [], visited: new Uint8Array(0) };
   }
 
-  // 预计算查询向量的平方范数，避免重复计算
-  const querySqNorm = calculateSqNorm(queryVector);
-
-  // 使用Uint8Array表示节点状态，复用visited数组
-  const visited = new Uint8Array(nodes.length);
-  
-  // 使用有序数组管理候选集，限制大小为beamSize
+  // 初始化候选集，大小为beamSize + 1
   const candidates: SearchCandidate[] = [];
-  let candidateCount = 0;
+  const visited = new Uint8Array(nodes.length); // 使用Uint8Array优化性能
+  const insertedIntoPool = new Set<number>();
+  
+  // 初始化候选集，所有距离设为无穷大
+  for (let i = 0; i <= beamSize; i++) {
+    candidates.push({ id: 0, distance: Infinity, flag: false });
+  }
 
   // 添加所有起始节点
+  let l = 0; // 当前候选集大小
   for (const startNodeId of startNodeIds) {
     if (startNodeId >= nodes.length) continue;
     
-    // 查询阶段：直接计算距离，不使用缓存
-    const initialDistance = computeDistance(
-      queryVector, 
-      nodes[startNodeId].vector, 
-      distanceConfig,
-      querySqNorm,
-      nodes[startNodeId].sqNorm
-    );
+    const initialDistance = computeDistance(queryVector, nodes[startNodeId].vector, distanceConfig);
     
-    // 插入到有序位置
-    insertCandidate(candidates, { id: startNodeId, distance: initialDistance, flag: true }, beamSize);
-    candidateCount = Math.min(candidateCount + 1, beamSize);
+    // 插入到正确位置，保持排序
+    let insertPos = l;
+    for (let i = 0; i < l; i++) {
+      if (initialDistance < candidates[i].distance) {
+        insertPos = i;
+        break;
+      }
+    }
     
-    // 标记为在候选集中
-    visited[startNodeId] = NodeState.IN_CANDIDATES;
+    // 移动元素
+    for (let i = l; i > insertPos; i--) {
+      candidates[i] = candidates[i - 1];
+    }
+    candidates[insertPos] = { id: startNodeId, distance: initialDistance, flag: true };
+    insertedIntoPool.add(startNodeId);
+    
+    if (l < beamSize) {
+      l++;
+    }
   }
 
-  let currentIndex = 0;
+  let k = 0; // 当前处理的索引
 
   // 主循环：处理需要扩展的节点
-  while (currentIndex < candidateCount) {
-    const currentCandidate = candidates[currentIndex];
-    
-    if (currentCandidate.flag) {
-      currentCandidate.flag = false;
-      const currentId = currentCandidate.id;
+  while (k < l) {
+    let nk = l;
+
+    if (candidates[k].flag) {
+      candidates[k].flag = false;
+      const currentId = candidates[k].id;
       
-      // 标记为已访问
-      visited[currentId] = NodeState.VISITED;
+      // 如果当前节点不是frozen point，则记录为已访问
+      if (currentId < nodes.length) {
+        visited[currentId] = 1; // 使用数组索引访问，O(1)性能
+      }
 
       // 探索当前节点的邻居
       const currentNode = nodes[currentId];
       for (const neighborId of currentNode.neighbors) {
         if (neighborId >= nodes.length) continue;
         
-        // 检查邻居是否已经处理过
-        if (visited[neighborId] === NodeState.UNVISITED) {
-          // 查询阶段：直接计算距离，不使用缓存
-          const distance = computeDistance(
-            queryVector, 
-            nodes[neighborId].vector, 
-            distanceConfig,
-            querySqNorm,
-            nodes[neighborId].sqNorm
-          );
+        // 检查邻居是否已经在候选集中
+        if (!insertedIntoPool.has(neighborId)) {
+          insertedIntoPool.add(neighborId);
           
-          // 尝试插入到候选集
-          const inserted = insertCandidate(candidates, { id: neighborId, distance, flag: true }, beamSize);
-          if (inserted) {
-            candidateCount = Math.min(candidateCount + 1, beamSize);
-            // 标记为在候选集中
-            visited[neighborId] = NodeState.IN_CANDIDATES;
+          const distance = computeDistance(queryVector, nodes[neighborId].vector, distanceConfig);
+          
+          // 如果距离小于当前候选集中的最大距离，则插入
+          if (distance < candidates[l - 1].distance || l < beamSize) {
+            const newCandidate: SearchCandidate = { id: neighborId, distance, flag: true };
+            
+            // 插入到正确位置，保持排序
+            let insertPos = l;
+            for (let i = 0; i < l; i++) {
+              if (distance < candidates[i].distance) {
+                insertPos = i;
+                break;
+              }
+            }
+            
+            // 移动元素
+            for (let i = l; i > insertPos; i--) {
+              candidates[i] = candidates[i - 1];
+            }
+            candidates[insertPos] = newCandidate;
+            
+            if (l < beamSize) {
+              l++;
+            }
+            
+            if (insertPos < nk) {
+              nk = insertPos;
+            }
           }
         }
       }
     }
     
-    currentIndex++;
-  }
-
-  // 过滤掉无效的候选（距离为无穷大的）
-  const validCandidates = candidates.filter(c => c.distance < Infinity);
-
-  return { 
-    candidates: validCandidates, 
-    visited 
-  };
-}
-
-/**
- * 贪婪图搜索算法 - 用于建图阶段的多起始点搜索（使用缓存）
- * 
- * 优化策略：
- * 1. 使用最小堆管理候选集，O(log n)插入/删除
- * 2. 复用visited数组，避免额外的Set结构
- * 3. 对象池减少内存分配
- * 4. 使用距离缓存避免重复计算
- * 5. 改进候选集管理策略
- */
-export function greedySearchForBuildingMultiStart(
-  nodeId: number, // 当前节点ID
-  startNodeIds: number[], // 支持多个起始点
-  beamSize: number,
-  nodes: VamanaNode[],
-  distanceCache: DistanceCache,
-  distanceConfig: DistanceConfig
-): SearchResult {
-  if (nodes.length === 0 || startNodeIds.length === 0) {
-    return { candidates: [], visited: new Uint8Array(0) };
-  }
-
-  // 使用Uint8Array表示节点状态，复用visited数组
-  const visited = new Uint8Array(nodes.length);
-  
-  // 使用有序数组管理候选集，限制大小为beamSize
-  const candidates: SearchCandidate[] = [];
-  let candidateCount = 0;
-
-  // 添加所有起始节点
-  for (const startNodeId of startNodeIds) {
-    if (startNodeId >= nodes.length) continue;
-    
-    // 建图阶段：使用缓存计算距离
-    const initialDistance = computeDistanceFromIds(
-      nodeId, 
-      startNodeId, 
-      nodes, 
-      distanceCache, 
-      distanceConfig
-    );
-    
-    // 插入到有序位置
-    insertCandidate(candidates, { id: startNodeId, distance: initialDistance, flag: true }, beamSize);
-    candidateCount = Math.min(candidateCount + 1, beamSize);
-    
-    // 标记为在候选集中
-    visited[startNodeId] = NodeState.IN_CANDIDATES;
-  }
-
-  let currentIndex = 0;
-
-  // 主循环：处理需要扩展的节点
-  while (currentIndex < candidateCount) {
-    const currentCandidate = candidates[currentIndex];
-    
-    if (currentCandidate.flag) {
-      currentCandidate.flag = false;
-      const currentId = currentCandidate.id;
-      
-      // 标记为已访问
-      visited[currentId] = NodeState.VISITED;
-
-      // 探索当前节点的邻居
-      const currentNode = nodes[currentId];
-      for (const neighborId of currentNode.neighbors) {
-        if (neighborId >= nodes.length) continue;
-        
-        // 检查邻居是否已经处理过
-        if (visited[neighborId] === NodeState.UNVISITED) {
-          // 建图阶段：使用缓存计算距离
-          const distance = computeDistanceFromIds(
-            nodeId, 
-            neighborId, 
-            nodes, 
-            distanceCache, 
-            distanceConfig
-          );
-          
-          // 尝试插入到候选集
-          const inserted = insertCandidate(candidates, { id: neighborId, distance, flag: true }, beamSize);
-          if (inserted) {
-            candidateCount = Math.min(candidateCount + 1, beamSize);
-            // 标记为在候选集中
-            visited[neighborId] = NodeState.IN_CANDIDATES;
-          }
-        }
-      }
-    }
-    
-    currentIndex++;
-  }
-
-  // 过滤掉无效的候选（距离为无穷大的）
-  const validCandidates = candidates.filter(c => c.distance < Infinity);
-
-  return { 
-    candidates: validCandidates, 
-    visited 
-  };
-}
-
-/**
- * 将候选插入到有序数组中，保持距离排序
- * @param candidates 候选数组
- * @param newCandidate 新候选
- * @param maxSize 最大大小
- * @returns 是否成功插入
- */
-function insertCandidate(candidates: SearchCandidate[], newCandidate: SearchCandidate, maxSize: number): boolean {
-  // 如果数组未满，直接插入
-  if (candidates.length < maxSize) {
-    // 使用二分查找找到插入位置
-    const insertPos = binarySearchInsertPosition(candidates, newCandidate.distance);
-    
-    // 移动元素
-    candidates.push(newCandidate);
-    for (let i = candidates.length - 1; i > insertPos; i--) {
-      candidates[i] = candidates[i - 1];
-    }
-    candidates[insertPos] = newCandidate;
-    return true;
-  }
-  
-  // 如果数组已满，检查是否可以替换最后一个元素
-  if (newCandidate.distance < candidates[candidates.length - 1].distance) {
-    // 使用二分查找找到插入位置
-    const insertPos = binarySearchInsertPosition(candidates, newCandidate.distance);
-    
-    // 移动元素
-    for (let i = candidates.length - 1; i > insertPos; i--) {
-      candidates[i] = candidates[i - 1];
-    }
-    candidates[insertPos] = newCandidate;
-    return true;
-  }
-  
-  return false;
-}
-
-/**
- * 使用二分查找找到插入位置
- * @param candidates 有序候选数组
- * @param distance 要插入的距离
- * @returns 插入位置
- */
-function binarySearchInsertPosition(candidates: SearchCandidate[], distance: number): number {
-  let left = 0;
-  let right = candidates.length;
-  
-  while (left < right) {
-    const mid = (left + right) >>> 1; // 使用无符号右移避免溢出
-    if (candidates[mid].distance < distance) {
-      left = mid + 1;
+    // 更新处理索引
+    if (nk <= k) {
+      k = nk;
     } else {
-      right = mid;
+      k++;
     }
   }
+
+  // 过滤掉无效的候选（距离为无穷大的）
+  const validCandidates = candidates.filter(c => c.distance < Infinity);
   
-  return left;
+  return { 
+    candidates: validCandidates, 
+    visited 
+  };
 }
 
 /**
@@ -338,28 +199,6 @@ export function greedySearch(
   distanceConfig: DistanceConfig
 ): SearchResult {
   return greedySearchMultiStart(queryVector, [startNodeId], beamSize, nodes, distanceCache, distanceConfig);
-}
-
-/**
- * 贪婪图搜索算法 - 建图阶段的单起始点版本（使用缓存）
- * 
- * 优化策略：
- * 1. 使用有序数组而非堆，适用于beamSize较小的情况
- * 2. 正确的终止条件：当没有更多节点需要扩展时停止
- * 3. 高效的候选集管理，避免重复计算
- * 4. 支持frozen point处理
- * 5. 使用Uint8Array优化visited集合性能
- * 6. 使用距离缓存避免重复计算
- */
-export function greedySearchForBuilding(
-  nodeId: number,
-  startNodeId: number,
-  beamSize: number,
-  nodes: VamanaNode[],
-  distanceCache: DistanceCache,
-  distanceConfig: DistanceConfig
-): SearchResult {
-  return greedySearchForBuildingMultiStart(nodeId, [startNodeId], beamSize, nodes, distanceCache, distanceConfig);
 }
 
 /**

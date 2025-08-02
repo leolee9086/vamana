@@ -11,7 +11,7 @@
 
 import { Vector, SearchResult, SearchParams, NodeData } from './common.js';
 import { DistanceCache, DistanceConfig, DistanceFunction, computeDistance } from './distance.js';
-import { VamanaNode, greedySearch, greedySearchForBuilding, findMedoid, SearchCandidate, calculateSqNorm } from './graph-search.js';
+import { VamanaNode, greedySearch, findMedoid, SearchCandidate, calculateSqNorm } from './graph-search.js';
 import { robustPruneStandard } from './robust-prune.js';
 
 // ================ 常量定义 ================
@@ -219,12 +219,12 @@ function buildIndexForState(state: VamanaState): void {
       for (let i = batchStart; i < batchEnd; i++) {
         const nodeId = nodeIds[i];
         
-        // 从多个起始点开始搜索（使用专门的建图搜索函数）
+        // 从多个起始点开始搜索
         const allVisitedNodes = new Set<number>();
         
         for (const startPoint of initIds) {
-          const searchResult = greedySearchForBuilding(
-            nodeId,
+          const searchResult = greedySearch(
+            state.nodes[nodeId].vector, 
             startPoint, 
             L, 
             state.nodes, 

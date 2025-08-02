@@ -112,6 +112,73 @@ export class MidiHeapGeneric<T> {
         data[pos] = item;
     }
 
+    /**
+     * 将元素向上调整以维护堆属性。
+     */    private upHeap(pos: number): void {
+        const data = this.data;
+        const compare = this.compare;
+        const item = data[pos]!;
+        
+        while (pos > 0) {
+            const parent = (pos - 1) >>> 1;
+            if (compare(item, data[parent]!) >= 0) break; // 如果当前元素大于或等于父元素，则停止
+            
+            data[pos] = data[parent]!;
+            pos = parent;
+        }
+        data[pos] = item;
+    }
+
+    /**
+     * 从堆中移除满足条件的第一个元素。
+     * @param predicate 用于判断是否移除元素的函数。
+     * @returns 被移除的元素，如果未找到则返回 undefined。
+     */
+    remove(predicate: (item: T) => boolean): T | undefined {
+        if (this.size === 0) {
+            return undefined;
+        }
+
+        let removedItem: T | undefined = undefined;
+        let foundIndex = -1;
+
+        // 查找要移除的元素
+        for (let i = 0; i < this.size; i++) {
+            if (predicate(this.data[i]!)) {
+                foundIndex = i;
+                removedItem = this.data[i];
+                break;
+            }
+        }
+
+        if (foundIndex === -1) {
+            return undefined; // 未找到
+        }
+
+        // 如果要移除的是最后一个元素，直接减小 size 即可
+        if (foundIndex === this.size - 1) {
+            this.size--;
+            this.data[this.size] = undefined as any; // 清除引用
+            return removedItem;
+        }
+
+        // 将最后一个元素移动到被移除的位置
+        this.size--;
+        this.data[foundIndex] = this.data[this.size]!; // 这里的 this.data[this.size] 已经是最后一个元素的下一个位置，可能为 undefined
+        this.data[this.size] = undefined as any; // 清除引用
+
+        // 重新调整堆
+        // 这里的比较需要注意，如果 foundIndex 是 0，那么 (foundIndex - 1) >>> 1 会是很大的数
+        // 应该判断 foundIndex 是否是根节点
+        if (foundIndex > 0 && this.compare(this.data[foundIndex]!, this.data[(foundIndex - 1) >>> 1]!) < 0) {
+            this.upHeap(foundIndex);
+        } else {
+            this.downHeap(foundIndex, this.size);
+        }
+
+        return removedItem;
+    }
+
     peek(): T | undefined {
         return this.size > 0 ? this.data[0] : undefined;
     }
@@ -142,4 +209,4 @@ export class MidiHeapGeneric<T> {
         // 3. 不再画蛇添足地反转，将排序结果直接返回
         return sorted;
     }
-} 
+}
