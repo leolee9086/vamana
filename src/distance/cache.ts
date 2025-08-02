@@ -28,10 +28,10 @@ export class DistanceCache {
   constructor(maxSize: number = 10000) {
     this.maxSize = maxSize;
   }
-//@织:这里的数字范围过小,需要优化
+
   /**
-   * 生成数字键 - 将两个32位整数编码为一个数字
-   * 使用位运算确保键的唯一性和一致性
+   * 生成数字键 - 使用Cantor配对函数将两个整数编码为一个数字
+   * Cantor配对函数确保键的唯一性和一致性，支持更大的ID范围
    * 
    * @param id1 第一个ID
    * @param id2 第二个ID
@@ -39,36 +39,16 @@ export class DistanceCache {
    */
   private generateKey(id1: number, id2: number): number {
     // 确保id1 <= id2，保持键的一致性
-    const minId = Math.min(id1, id2);
-    const maxId = Math.max(id1, id2);
+    const minId = id1 < id2 ? id1 : id2;
+    const maxId = id1 < id2 ? id2 : id1;
     
-    // 使用位运算将两个32位整数编码为一个数字
-    // 假设ID不会超过2^16，这样可以用32位存储两个ID
-    if (minId < 0 || maxId >= 65536) {
-      // 如果ID超出范围，回退到字符串键的哈希值
-      const strKey = `${minId}-${maxId}`;
-      return this.hashString(strKey);
-    }
-    
-    // 将minId放在高16位，maxId放在低16位
-    return (minId << 16) | maxId;
+    // 使用Cantor配对函数：f(a,b) = ((a + b) * (a + b + 1)) / 2 + b
+    // 这个函数是双射的，确保每个(a,b)对都有唯一的输出
+    // 支持更大的ID范围，性能比字符串哈希快得多
+    return ((minId + maxId) * (minId + maxId + 1)) / 2 + maxId;
   }
 
-  /**
-   * 简单的字符串哈希函数
-   * 
-   * @param str 需要哈希的字符串
-   * @returns 哈希值
-   */
-  private hashString(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // 转换为32位整数
-    }
-    return hash;
-  }
+
 
   /**
    * 将节点移到链表头部（最近使用）

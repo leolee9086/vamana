@@ -377,25 +377,14 @@ export function greedySearchForBuilding(
 }
 
 /**
- * 找到数据集的中位点（medoid）- 优化版本
- * 
- * 优化策略：
- * 1. 利用距离对称性减少重复计算
- * 2. 支持近似算法（随机采样）
- * 3. 改进错误处理
- * 4. 添加性能统计
+ * 找到数据集的入口点（medoid）- 复现C++ calculate_entry_point方法
+ * 通过计算质心并找到距离质心最近的节点
  */
 export function findMedoid(
   nodes: VamanaNode[],
-  distanceCache: DistanceCache,
-  distanceConfig: DistanceConfig,
-  options?: {
-    useApproximation?: boolean; // 是否使用近似算法
-    sampleSize?: number; // 采样大小（用于近似算法）
-    maxExactSize?: number; // 使用精确算法的最大节点数
-  }
+  distanceCache: DistanceCache, // 尽管这里不直接使用缓存，但为了保持接口一致性保留
+  distanceConfig: DistanceConfig
 ): number {
-  // 改进错误处理
   if (nodes.length === 0) {
     throw new Error('Cannot find medoid for an empty set of nodes.');
   }
@@ -403,16 +392,42 @@ export function findMedoid(
     return 0;
   }
 
-  const useApproximation = options?.useApproximation ?? (nodes.length > (options?.maxExactSize ?? 1000));
-  const sampleSize = options?.sampleSize ?? Math.min(100, Math.ceil(nodes.length * 0.1));
+  const dim = nodes[0].vector.length;
+  const centroid = new Float32Array(dim).fill(0);
 
-  // 使用近似算法
-  if (useApproximation) {
-    return findMedoidApproximate(nodes, distanceCache, distanceConfig, sampleSize);
+  // 1. 计算质心
+  for (const node of nodes) {
+    for (let i = 0; i < dim; i++) {
+      centroid[i] += node.vector[i];
+    }
   }
 
-  // 使用精确算法（优化版本）
-  return findMedoidExact(nodes, distanceCache, distanceConfig);
+  for (let i = 0; i < dim; i++) {
+    centroid[i] /= nodes.length;
+  }
+
+  // 2. 找到距离质心最近的节点
+  let minDistance = Infinity;
+  let medoidId = 0;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    // 计算节点到质心的距离
+    const distance = computeDistance(
+      centroid,
+      node.vector,
+      { distanceFunction: 'euclidean' }, // 强制使用欧几里得距离
+      calculateSqNorm(centroid), // 预计算质心的平方范数
+      node.sqNorm // 节点本身的平方范数已预计算
+    );
+
+    if (distance < minDistance) {
+      minDistance = distance;
+      medoidId = i;
+    }
+  }
+
+  return medoidId;
 }
 
 /**
@@ -427,29 +442,12 @@ function findMedoidExact(
   let bestMedoid = 0;
   let minTotalDistance = Infinity;
 
-  // 预计算所有距离矩阵（利用对称性）
-  const distanceMatrix: number[][] = [];
-  for (let i = 0; i < nodes.length; i++) {
-    distanceMatrix[i] = [];
-    for (let j = 0; j < nodes.length; j++) {
-      if (i === j) {
-        distanceMatrix[i][j] = 0;
-      } else if (j < i) {
-        // 利用对称性，复用已计算的距离
-        distanceMatrix[i][j] = distanceMatrix[j][i];
-      } else {
-        // 计算新距离
-        distanceMatrix[i][j] = computeDistanceFromIds(i, j, nodes, distanceCache, distanceConfig);
-      }
-    }
-  }
-
   // 计算每个节点的总距离
   for (let i = 0; i < nodes.length; i++) {
     let totalDistance = 0;
     for (let j = 0; j < nodes.length; j++) {
       if (i !== j) {
-        totalDistance += distanceMatrix[i][j];
+        totalDistance += computeDistanceFromIds(i, j, nodes, distanceCache, distanceConfig);
       }
     }
     

@@ -25,7 +25,6 @@ export interface DistanceConfig {
   /** 填充维度ID */
   paddingId?: number;
 }
-
 /**
  * LRU缓存节点接口
  */

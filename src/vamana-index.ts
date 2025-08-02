@@ -233,11 +233,10 @@ function buildIndexForState(state: VamanaState): void {
             state.distanceCache, 
             state.distanceConfig
           );
-          // 合并所有访问的节点
-          for (let i = 0; i < searchResult.visited.length; i++) {
-            if (searchResult.visited[i] === 1) {
-              allVisitedNodes.add(i);
-            }
+          // 仅使用搜索结果中的候选节点作为allVisitedNodes
+          // 因为searchResult.candidates的大小已经被L限制
+          for (const candidate of searchResult.candidates) {
+            allVisitedNodes.add(candidate.id);
           }
         }
         
