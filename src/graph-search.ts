@@ -3,20 +3,10 @@
  * 提供高性能的图搜索算法
  */
 
-import { Vector } from './common.js';
 import { DistanceConfig, DistanceCache, computeDistance, computeDistanceFromIds } from './distance.js';
-import { BinaryHeapGeneric } from './binary-heap.js';
-
-// ================ 类型定义 ================
-
-export interface VamanaNode {
-  vector: Float32Array;
-  id: number;
-  data: any;
-  neighbors: number[]; // 出边邻居列表
-  sqNorm?: number; // 预计算的向量平方范数，用于优化距离计算
-}
-
+import {calculateSqNorm} from './utils/norms';
+import {findCentroid} from './utils/centroid';
+import type {VamanaNode} from './types';
 export interface SearchCandidate {
   id: number;
   distance: number;
@@ -37,19 +27,8 @@ enum NodeState {
 }
 
 // ================ 辅助函数 ================
+const {VISITED,IN_CANDIDATES,UNVISITED} = NodeState;
 
-/**
- * 计算向量的平方范数
- * @param vec 输入向量
- * @returns 向量的平方范数
- */
-export function calculateSqNorm(vec: Float32Array): number {
-  let sum = 0;
-  for (let i = 0; i < vec.length; i++) {
-    sum += vec[i] * vec[i];
-  }
-  return sum;
-}
 
 // ================ 图搜索算法 ================
 
@@ -62,6 +41,7 @@ export function greedySearchMultiStart(
   distanceCache: DistanceCache,
   distanceConfig: DistanceConfig
 ): SearchResult {
+  
   if (nodes.length === 0 || startNodeIds.length === 0) {
     return { candidates: [], visited: new Uint8Array(0), visitedNodeCount: 0 };
   }
@@ -95,14 +75,13 @@ export function greedySearchMultiStart(
     candidateCount = Math.min(candidateCount + 1, beamSize);
     
     // 标记为在候选集中
-    if (visited[startNodeId] === NodeState.UNVISITED) { // 只有未访问过的节点才增加计数
-      visited[startNodeId] = NodeState.IN_CANDIDATES;
+    if (visited[startNodeId] === UNVISITED) { // 只有未访问过的节点才增加计数
+      visited[startNodeId] = IN_CANDIDATES;
       visitedNodeCount++;
     }
   }
 
   let currentIndex = 0;
-
   // 主循环：处理需要扩展的节点
   while (currentIndex < candidateCount) {
     const currentCandidate = candidates[currentIndex];
@@ -112,8 +91,8 @@ export function greedySearchMultiStart(
       const currentId = currentCandidate.id;
       
       // 标记为已访问
-      if (visited[currentId] !== NodeState.VISITED) { // 只有未标记为已访问的节点才增加计数
-        visited[currentId] = NodeState.VISITED;
+      if (visited[currentId] !== VISITED) { // 只有未标记为已访问的节点才增加计数
+        visited[currentId] = VISITED;
         // visitedNodeCount++; // 已经在IN_CANDIDATES时计数，这里不再重复计数
       }
 
@@ -123,7 +102,7 @@ export function greedySearchMultiStart(
         if (neighborId >= nodes.length) continue;
         
         // 检查邻居是否已经处理过
-        if (visited[neighborId] === NodeState.UNVISITED) {
+        if (visited[neighborId] === UNVISITED) {
           // 查询阶段：直接计算距离，不使用缓存
           const distance = computeDistance(
             queryVector, 
@@ -138,8 +117,8 @@ export function greedySearchMultiStart(
           if (inserted) {
             candidateCount = Math.min(candidateCount + 1, beamSize);
             // 标记为在候选集中
-            if (visited[neighborId] === NodeState.UNVISITED) { // 只有未访问过的节点才增加计数
-              visited[neighborId] = NodeState.IN_CANDIDATES;
+            if (visited[neighborId] === UNVISITED) { // 只有未访问过的节点才增加计数
+              visited[neighborId] = IN_CANDIDATES;
               visitedNodeCount++;
             }
           }
@@ -209,8 +188,8 @@ export function greedySearchForBuildingMultiStart(
     candidateCount = Math.min(candidateCount + 1, beamSize);
     
     // 标记为在候选集中
-    if (visited[startNodeId] === NodeState.UNVISITED) { // 只有未访问过的节点才增加计数
-      visited[startNodeId] = NodeState.IN_CANDIDATES;
+    if (visited[startNodeId] === UNVISITED) { // 只有未访问过的节点才增加计数
+      visited[startNodeId] = IN_CANDIDATES;
       visitedNodeCount++;
     }
   }
@@ -226,8 +205,8 @@ export function greedySearchForBuildingMultiStart(
       const currentId = currentCandidate.id;
       
       // 标记为已访问
-      if (visited[currentId] !== NodeState.VISITED) { // 只有未标记为已访问的节点才增加计数
-        visited[currentId] = NodeState.VISITED;
+      if (visited[currentId] !== VISITED) { // 只有未标记为已访问的节点才增加计数
+        visited[currentId] = VISITED;
         // visitedNodeCount++; // 已经在IN_CANDIDATES时计数，这里不再重复计数
       }
 
@@ -237,7 +216,7 @@ export function greedySearchForBuildingMultiStart(
         if (neighborId >= nodes.length) continue;
         
         // 检查邻居是否已经处理过
-        if (visited[neighborId] === NodeState.UNVISITED) {
+        if (visited[neighborId] === UNVISITED) {
           // 建图阶段：使用缓存计算距离
           const distance = computeDistanceFromIds(
             nodeId, 
@@ -252,8 +231,8 @@ export function greedySearchForBuildingMultiStart(
           if (inserted) {
             candidateCount = Math.min(candidateCount + 1, beamSize);
             // 标记为在候选集中
-            if (visited[neighborId] === NodeState.UNVISITED) { // 只有未访问过的节点才增加计数
-              visited[neighborId] = NodeState.IN_CANDIDATES;
+            if (visited[neighborId] === UNVISITED) { // 只有未访问过的节点才增加计数
+              visited[neighborId] = IN_CANDIDATES;
               visitedNodeCount++;
             }
           }
@@ -395,24 +374,14 @@ export function findMedoid(
   }
 
   const dim = nodes[0].vector.length;
-  const centroid = new Float32Array(dim).fill(0);
-
-  // 1. 计算质心
-  for (const node of nodes) {
-    for (let i = 0; i < dim; i++) {
-      centroid[i] += node.vector[i];
-    }
-  }
-
-  for (let i = 0; i < dim; i++) {
-    centroid[i] /= nodes.length;
-  }
+  const nodeCount = nodes.length;
+  const centroid = findCentroid(nodes,dim,nodeCount);
 
   // 2. 找到距离质心最近的节点
   let minDistance = Infinity;
   let medoidId = 0;
 
-  for (let i = 0; i < nodes.length; i++) {
+  for (let i = 0; i < nodeCount; i++) {
     const node = nodes[i];
     // 计算节点到质心的距离
     const distance = computeDistance(
@@ -422,86 +391,14 @@ export function findMedoid(
       calculateSqNorm(centroid), // 预计算质心的平方范数
       node.sqNorm // 节点本身的平方范数已预计算
     );
-
     if (distance < minDistance) {
       minDistance = distance;
       medoidId = i;
     }
   }
-
   return medoidId;
 }
 
-/**
- * 精确的中位点查找算法 - 优化版本
- * 利用距离对称性减少重复计算
- */
-function findMedoidExact(
-  nodes: VamanaNode[],
-  distanceCache: DistanceCache,
-  distanceConfig: DistanceConfig
-): number {
-  let bestMedoid = 0;
-  let minTotalDistance = Infinity;
-
-  // 计算每个节点的总距离
-  for (let i = 0; i < nodes.length; i++) {
-    let totalDistance = 0;
-    for (let j = 0; j < nodes.length; j++) {
-      if (i !== j) {
-        totalDistance += computeDistanceFromIds(i, j, nodes, distanceCache, distanceConfig);
-      }
-    }
-    
-    if (totalDistance < minTotalDistance) {
-      minTotalDistance = totalDistance;
-      bestMedoid = i;
-    }
-  }
-
-  return bestMedoid;
-}
-
-/**
- * 近似中位点查找算法
- * 使用随机采样减少计算复杂度
- */
-function findMedoidApproximate(
-  nodes: VamanaNode[],
-  distanceCache: DistanceCache,
-  distanceConfig: DistanceConfig,
-  sampleSize: number
-): number {
-  // 随机采样候选节点
-  const candidateIndices = new Set<number>();
-  while (candidateIndices.size < Math.min(sampleSize, nodes.length)) {
-    const randomIndex = Math.floor(Math.random() * nodes.length);
-    candidateIndices.add(randomIndex);
-  }
-  
-  const candidates = Array.from(candidateIndices);
-  let bestMedoid = candidates[0];
-  let minTotalDistance = Infinity;
-
-  // 在候选节点中寻找中位点
-  for (const candidateId of candidates) {
-    let totalDistance = 0;
-    
-    // 计算候选节点到所有其他节点的距离
-    for (let j = 0; j < nodes.length; j++) {
-      if (candidateId !== j) {
-        totalDistance += computeDistanceFromIds(candidateId, j, nodes, distanceCache, distanceConfig);
-      }
-    }
-    
-    if (totalDistance < minTotalDistance) {
-      minTotalDistance = totalDistance;
-      bestMedoid = candidateId;
-    }
-  }
-
-  return bestMedoid;
-}
 
 /**
  * 基于图结构的中位点查找算法

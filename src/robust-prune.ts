@@ -4,7 +4,7 @@
  * 参考C++版本的occlude_list函数实现
  */
 
-import { VamanaNode } from './graph-search.js';
+import { VamanaNode } from './types';
 import { DistanceCache, DistanceConfig, computeDistance, computeDistanceFromIds } from './distance.js';
 
 export interface SearchCandidate {
@@ -75,18 +75,14 @@ export function robustPruneStandard(
         start++;
         continue;
       }
-
       // 选择这个节点
       occludeFactor[start] = Infinity;
       result.push(candidate.id);
-
       // 剪枝被这个节点覆盖的其他候选，使用maxc参数
       for (let t = start + 1; t < candidates.length && t < maxc; t++) {
         if (occludeFactor[t] > alpha) continue;
-
         const otherCandidate = candidates[t];
         const djk = computeDistanceFromIds(candidate.id, otherCandidate.id, nodes, distanceCache, distanceConfig);
-
         // 根据距离函数类型计算剪枝条件
         if (distanceConfig.distanceFunction === 'euclidean' || distanceConfig.distanceFunction === 'cosine') {
           // L2和Cosine距离：d(p,p') / d(p*,p') >= alpha
@@ -106,36 +102,9 @@ export function robustPruneStandard(
       }
       start++;
     }
-
     // 增加alpha值
     curAlpha *= 1.2;
   }
-
   return result;
 }
 
-/**
- * 向后兼容的RobustPrune函数，使用默认的maxc值
- * 
- * @param nodeId 当前节点ID
- * @param candidateIds 候选节点ID列表
- * @param alpha 剪枝参数
- * @param R 目标度数（保持原有参数名）
- * @param nodes 节点数组
- * @param distanceCache 距离缓存
- * @param distanceConfig 距离配置
- * @returns 剪枝后的邻居ID列表
- */
-export function robustPruneStandardLegacy(
-  nodeId: number,
-  candidateIds: number[],
-  alpha: number,
-  R: number,
-  nodes: VamanaNode[],
-  distanceCache: DistanceCache,
-  distanceConfig: DistanceConfig
-): number[] {
-  // 使用与C++版本一致的默认maxc值
-  const maxc = Math.max(R * 2, 100);
-  return robustPruneStandard(nodeId, candidateIds, alpha, R, maxc, nodes, distanceCache, distanceConfig);
-}
