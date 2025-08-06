@@ -9,9 +9,9 @@
  * 4. 批量处理优化
  */
 import { DistanceCache, DistanceConfig, DistanceFunction, computeDistance } from './distance';
-import { VamanaNode, greedySearch, greedySearchForBuilding, findMedoid, SearchCandidate } from './graph-search';
+import { greedySearch, greedySearchForBuilding, findMedoid, SearchCandidate } from './graph-search';
 import { robustPruneStandard } from './robust-prune';
-import type { VamanaConfig, VamanaStats, VamanaState, VamanaIndex, Vector, SearchResult, SearchParams, NodeData } from './types';
+import type {VamanaNode, VamanaConfig, VamanaStats, VamanaState, VamanaIndex, Vector, SearchResult, SearchParams, NodeData } from './types';
 
 import { insertNodeToState } from './crud/insert';
 // ================ 常量定义 ================
@@ -424,18 +424,3 @@ export function createVamanaIndex(config: VamanaConfig = {}): VamanaIndex {
   };
 }
 
-/**
- * 🚀 Ultra优化总结：
- * 
- * 📈 核心优化策略：
- * 1. 混合堆架构 - BinaryHeap + MidiHeap，发挥各自优势
- * 2. 预计算范数 - 避免重复计算，显著提升距离计算性能
- * 3. 循环展开 - 手动SIMD优化，最大化CPU利用率
- * 4. 优化内存访问 - Uint8Array访问标记，减少内存分配
- * 5. 高效API利用 - MidiHeap.replace()等高性能API
- * 
- * 🎯 预期性能提升：
- * - 构建速度：3-5x 提升（主要来自距离计算优化）
- * - 查询速度：2-3x 提升（混合堆策略 + 预计算范数）
- * - 内存效率：显著提升（预分配 + 优化数据结构）
- */

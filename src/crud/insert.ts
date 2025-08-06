@@ -1,6 +1,6 @@
 import type { VamanaState } from '../types';
 import type { Vector, NodeData } from '../types';
-import { VamanaNode } from '../graph-search';
+import { VamanaNode } from '../types';
 import { calculateSqNorm } from '../utils/norms';
 import { validateVector } from '../utils/validate';
 /**
