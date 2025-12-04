@@ -549,7 +549,6 @@ describe('Vamana 综合性能测试', () => {
       };
       
       recallTestIndex = createVamanaIndex(config);
-      
       // 测量构建时间
       const buildStartTime = performance.now();
       recallTestVectors.forEach(vector => recallTestIndex.insertNode(vector));

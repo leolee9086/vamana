@@ -17,10 +17,10 @@ export function calculateSqNorm(vec: Float32Array): number {
 
   // 8路循环展开计算平方范数
   for (; i + 7 < len; i += 8) {
-    sum += vec[i] * vec[i] + vec[i + 1] * vec[i + 1] + 
-           vec[i + 2] * vec[i + 2] + vec[i + 3] * vec[i + 3] +
-           vec[i + 4] * vec[i + 4] + vec[i + 5] * vec[i + 5] + 
-           vec[i + 6] * vec[i + 6] + vec[i + 7] * vec[i + 7];
+    sum += vec[i] * vec[i] + vec[i + 1] * vec[i + 1] +
+      vec[i + 2] * vec[i + 2] + vec[i + 3] * vec[i + 3] +
+      vec[i + 4] * vec[i + 4] + vec[i + 5] * vec[i + 5] +
+      vec[i + 6] * vec[i + 6] + vec[i + 7] * vec[i + 7];
   }
 
   // 处理剩余元素
@@ -42,9 +42,9 @@ export function calculateSqNorm(vec: Float32Array): number {
  * @returns 两个向量的欧几里得距离
  */
 export function computeEuclideanDistance(
-  vecA: Float32Array, 
-  vecB: Float32Array, 
-  sqNormA?: number, 
+  vecA: Float32Array,
+  vecB: Float32Array,
+  sqNormA?: number,
   sqNormB?: number
 ): number {
   let sum = 0;
@@ -61,9 +61,9 @@ export function computeEuclideanDistance(
     const diff5 = vecA[i + 5] - vecB[i + 5];
     const diff6 = vecA[i + 6] - vecB[i + 6];
     const diff7 = vecA[i + 7] - vecB[i + 7];
-    
+
     sum += diff0 * diff0 + diff1 * diff1 + diff2 * diff2 + diff3 * diff3 +
-           diff4 * diff4 + diff5 * diff5 + diff6 * diff6 + diff7 * diff7;
+      diff4 * diff4 + diff5 * diff5 + diff6 * diff6 + diff7 * diff7;
   }
 
   // 处理剩余元素
@@ -86,37 +86,37 @@ export function computeEuclideanDistance(
  * @returns 两个向量的余弦距离（1-余弦相似度）
  */
 export function computeCosineDistance(
-  vecA: Float32Array, 
-  vecB: Float32Array, 
-  sqNormA?: number, 
+  vecA: Float32Array,
+  vecB: Float32Array,
+  sqNormA?: number,
   sqNormB?: number
 ): number {
   let dotProduct = 0;
-  
+
   // 如果提供了预计算的范数，使用它们；否则计算
   const normA = sqNormA !== undefined ? Math.sqrt(sqNormA) : (() => {
     return Math.sqrt(calculateSqNorm(vecA));
   })();
-  
+
   const normB = sqNormB !== undefined ? Math.sqrt(sqNormB) : (() => {
     return Math.sqrt(calculateSqNorm(vecB));
   })();
-  
+
   // 8路循环展开计算点积
   const len = vecA.length;
   let i = 0;
   for (; i + 7 < len; i += 8) {
-    dotProduct += vecA[i] * vecB[i] + vecA[i + 1] * vecB[i + 1] + 
-                  vecA[i + 2] * vecB[i + 2] + vecA[i + 3] * vecB[i + 3] +
-                  vecA[i + 4] * vecB[i + 4] + vecA[i + 5] * vecB[i + 5] + 
-                  vecA[i + 6] * vecB[i + 6] + vecA[i + 7] * vecB[i + 7];
+    dotProduct += vecA[i] * vecB[i] + vecA[i + 1] * vecB[i + 1] +
+      vecA[i + 2] * vecB[i + 2] + vecA[i + 3] * vecB[i + 3] +
+      vecA[i + 4] * vecB[i + 4] + vecA[i + 5] * vecB[i + 5] +
+      vecA[i + 6] * vecB[i + 6] + vecA[i + 7] * vecB[i + 7];
   }
 
   // 处理剩余元素
   for (; i < len; i++) {
     dotProduct += vecA[i] * vecB[i];
   }
-  
+
   const normProduct = normA * normB;
   return normProduct === 0 ? 1 : 1 - (dotProduct / normProduct);
 }
@@ -131,12 +131,12 @@ export function computeCosineDistance(
  * @returns 两个向量的内积距离（负内积）
  */
 export function computeInnerProductDistance(
-  vecA: Float32Array, 
-  vecB: Float32Array, 
+  vecA: Float32Array,
+  vecB: Float32Array,
   config?: DistanceConfig
 ): number {
   let sum = 0;
-  
+
   // 如果启用了内积预处理
   if (config?.ipPrepared && config.paddingId !== undefined) {
     const paddingId = config.paddingId;
@@ -147,13 +147,13 @@ export function computeInnerProductDistance(
     for (; i + 7 < len; i += 8) {
       // 检查每个位置是否为填充维度
       sum += (i === paddingId ? vecA[i] * vecB[i] : vecA[i] * vecB[i]) +
-             (i + 1 === paddingId ? vecA[i + 1] * vecB[i + 1] : vecA[i + 1] * vecB[i + 1]) +
-             (i + 2 === paddingId ? vecA[i + 2] * vecB[i + 2] : vecA[i + 2] * vecB[i + 2]) +
-             (i + 3 === paddingId ? vecA[i + 3] * vecB[i + 3] : vecA[i + 3] * vecB[i + 3]) +
-             (i + 4 === paddingId ? vecA[i + 4] * vecB[i + 4] : vecA[i + 4] * vecB[i + 4]) +
-             (i + 5 === paddingId ? vecA[i + 5] * vecB[i + 5] : vecA[i + 5] * vecB[i + 5]) +
-             (i + 6 === paddingId ? vecA[i + 6] * vecB[i + 6] : vecA[i + 6] * vecB[i + 6]) +
-             (i + 7 === paddingId ? vecA[i + 7] * vecB[i + 7] : vecA[i + 7] * vecB[i + 7]);
+        (i + 1 === paddingId ? vecA[i + 1] * vecB[i + 1] : vecA[i + 1] * vecB[i + 1]) +
+        (i + 2 === paddingId ? vecA[i + 2] * vecB[i + 2] : vecA[i + 2] * vecB[i + 2]) +
+        (i + 3 === paddingId ? vecA[i + 3] * vecB[i + 3] : vecA[i + 3] * vecB[i + 3]) +
+        (i + 4 === paddingId ? vecA[i + 4] * vecB[i + 4] : vecA[i + 4] * vecB[i + 4]) +
+        (i + 5 === paddingId ? vecA[i + 5] * vecB[i + 5] : vecA[i + 5] * vecB[i + 5]) +
+        (i + 6 === paddingId ? vecA[i + 6] * vecB[i + 6] : vecA[i + 6] * vecB[i + 6]) +
+        (i + 7 === paddingId ? vecA[i + 7] * vecB[i + 7] : vecA[i + 7] * vecB[i + 7]);
     }
 
     // 处理剩余元素
@@ -165,10 +165,10 @@ export function computeInnerProductDistance(
     const len = vecA.length;
     let i = 0;
     for (; i + 7 < len; i += 8) {
-      sum += vecA[i] * vecB[i] + vecA[i + 1] * vecB[i + 1] + 
-             vecA[i + 2] * vecB[i + 2] + vecA[i + 3] * vecB[i + 3] +
-             vecA[i + 4] * vecB[i + 4] + vecA[i + 5] * vecB[i + 5] + 
-             vecA[i + 6] * vecB[i + 6] + vecA[i + 7] * vecB[i + 7];
+      sum += vecA[i] * vecB[i] + vecA[i + 1] * vecB[i + 1] +
+        vecA[i + 2] * vecB[i + 2] + vecA[i + 3] * vecB[i + 3] +
+        vecA[i + 4] * vecB[i + 4] + vecA[i + 5] * vecB[i + 5] +
+        vecA[i + 6] * vecB[i + 6] + vecA[i + 7] * vecB[i + 7];
     }
 
     // 处理剩余元素
@@ -176,7 +176,7 @@ export function computeInnerProductDistance(
       sum += vecA[i] * vecB[i];
     }
   }
-  
+
   return -sum; // 返回负值，因为我们要找最小距离
 }
 
@@ -191,15 +191,15 @@ export function computeInnerProductDistance(
  * @returns 根据配置计算的距离
  */
 export function computeDistance(
-  vecA: Float32Array, 
-  vecB: Float32Array, 
+  vecA: Float32Array,
+  vecB: Float32Array,
   config: DistanceConfig,
   sqNormA?: number,
   sqNormB?: number
 ): number {
   if (config.distanceFunction === 'custom' && config.customDistanceFunction) {
     return config.customDistanceFunction(
-      { vector: vecA }, 
+      { vector: vecA },
       { vector: vecB }
     );
   }

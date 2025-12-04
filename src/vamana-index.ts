@@ -9,9 +9,10 @@
  * 4. 批量处理优化
  */
 import { DistanceCache, DistanceConfig, DistanceFunction, computeDistance } from './distance';
-import { greedySearch, greedySearchForBuilding, findMedoid, SearchCandidate } from './graph-search';
+import {  greedySearchForBuilding, greedySearchMultiStart,    } from './graph-search';
+import { findMedoid } from './build/findMedoid';
 import { robustPruneStandard } from './robust-prune';
-import type {VamanaNode, VamanaConfig, VamanaStats, VamanaState, VamanaIndex, Vector, SearchResult, SearchParams, NodeData } from './types';
+import type { VamanaNode, VamanaConfig, VamanaStats, VamanaState, VamanaIndex, Vector, SearchResult, SearchParams, NodeData } from './types';
 
 import { insertNodeToState } from './crud/insert';
 // ================ 常量定义 ================
@@ -115,17 +116,20 @@ function initializeRandomNeighbors(nodes: VamanaNode[], nodeCount: number, maxDe
  * 基于C++实现修复：每个节点从多个起始点开始搜索，提高图的连通性
  */
 function buildIndexForState(state: VamanaState): void {
-  if (state.nodes.length === 0) return;
+  const { nodes } = state
+  const nodeCount = nodes.length
+  const R = state.config.R
+  if (nodeCount === 0) return;
 
-  console.log(`🔧 构建优化Vamana图 (${state.nodes.length}个节点)`);
+  console.log(`🔧 构建优化Vamana图 (${nodeCount}个节点)`);
 
   // 步骤1: 初始化一个随机邻接图
   console.log(`📊 步骤1: 初始化随机邻接图`);
-  initializeRandomNeighbors(state.nodes, state.nodes.length, state.config.R);
+  initializeRandomNeighbors(state.nodes, nodeCount, R);
 
   // 步骤2: 计算入口点（medoid）
   console.log(`🎯 步骤2: 计算入口点（medoid）`);
-  state.medoidId = findMedoid(state.nodes, state.distanceCache, state.distanceConfig);
+  state.medoidId = findMedoid(state.nodes);
   console.log(`📍 入口点: ${state.medoidId}`);
 
   // 步骤3&4: 从入口点出发遍历，使用路径上的所有点作为候选邻居，然后裁边，调整alpha重复迭代
@@ -243,31 +247,31 @@ function searchKNNInState(
   k = 10,
   searchParams: SearchParams = {}
 ): SearchResult[] {
-  if (state.nodes.length === 0) return [];
-
+  const {nodes,medoidId,distanceCache,distanceConfig}=state
+  const nodeCount = nodes.length
+  if (nodeCount === 0) return [];
   const queryArray = queryVector instanceof Float32Array ? queryVector : new Float32Array(queryVector);
   const beamSize = searchParams.searchListSize || state.config.L || 100;
   // 使用显式构建状态标志检查
   if (!state.hasBuilt) {
     throw new Error('Vamana图未构建');
   }
-  // 使用贪婪搜索从medoid开始，确保使用距离缓存
-  const searchResult = greedySearch(
+  // 使用贪婪搜索从medoid开始
+  const searchResult = greedySearchMultiStart(
     queryArray,
-    state.medoidId,
+    [medoidId],
     beamSize,
-    state.nodes,
-    state.distanceCache,
-    state.distanceConfig
+    nodes,
+    distanceConfig
   );
   // 过滤掉已删除的节点并返回最近的k个结果
   return searchResult.candidates
-    .filter(candidate => !state.nodes[candidate.id]?.data.deleted)
+    .filter(candidate => !nodes[candidate.id]?.data.deleted)
     .slice(0, k)
     .map(candidate => ({
       id: candidate.id,
       distance: candidate.distance,
-      data: state.nodes[candidate.id]?.data
+      data: nodes[candidate.id]?.data
     }));
 }
 
